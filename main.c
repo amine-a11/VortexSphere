@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "raylib.h"
+#include "raymath.h"
 
 #define TRAIL_SIZE 300
 #define NUM_ORBITERS 300
@@ -162,6 +163,56 @@ void DrawRasengan(const RasenganEffect *effect) {
   }
 }
 
+void UpdateCam(Camera3D *camera) {
+  const float sensitivityOrbit = 0.005f;
+  const float sensitivityZoom = 1.0f;
+  const float sensitivityPan = 0.005f;
+
+  Vector3 offset = Vector3Subtract(camera->position, camera->target);
+  float radius = Vector3Length(offset);
+
+  float azimuth = atan2f(offset.z, offset.x);  // horizontal angle
+  float elevation = acosf(offset.y / radius);  // vertical angle
+
+  if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+    Vector2 delta = GetMouseDelta();
+    azimuth -= delta.x * sensitivityOrbit;
+    elevation -= delta.y * sensitivityOrbit;
+    if (elevation < 0.1f) elevation = 0.1f;
+    if (elevation > PI - 0.1f) elevation = PI - 0.1f;
+  }
+
+  float wheel = GetMouseWheelMove();
+  if (wheel != 0) {
+    radius -= wheel * sensitivityZoom;
+    if (radius < 0.5f) radius = 0.5f;
+    if (radius > 100.f) radius = 100.f;
+  }
+
+  offset.x = radius * sinf(elevation) * cosf(azimuth);
+  offset.y = radius * cosf(elevation);
+  offset.z = radius * sinf(elevation) * sinf(azimuth);
+
+  camera->position = Vector3Add(camera->target, offset);
+
+  if (IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) {
+    Vector2 deltaPan = GetMouseDelta();
+
+    Vector3 forward =
+        Vector3Normalize(Vector3Subtract(camera->target, camera->position));
+    Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera->up));
+    Vector3 up = Vector3Normalize(Vector3CrossProduct(right, forward));
+
+    Vector3 pan = {-deltaPan.x * sensitivityPan, deltaPan.y * sensitivityPan,
+                   0.0f};
+    Vector3 panWorld =
+        Vector3Add(Vector3Scale(right, pan.x), Vector3Scale(up, pan.y));
+
+    camera->target = Vector3Add(camera->target, panWorld);
+    camera->position = Vector3Add(camera->position, panWorld);
+  }
+}
+
 int main(void) {
   srand48(time(NULL));
   InitWindow(WIDTH, HEIGHT, "Multiple Rasengan Effects");
@@ -185,6 +236,8 @@ int main(void) {
 
   while (!WindowShouldClose()) {
     UpdateRasenganOrbiters(&rasengan1);
+
+    UpdatePeasyCam(&camera);
 
     BeginDrawing();
     ClearBackground(BLACK);
