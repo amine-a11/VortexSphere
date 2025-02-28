@@ -1,11 +1,23 @@
 #include <math.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "raylib.h"
 
 #define TRAIL_SIZE 300
 #define NUM_ORBITERS 300
+
+#define READ_END 0
+#define WRITE_END 1
+
+#define WIDTH 800
+#define HEIGHT 600
+uint32_t pixels[WIDTH * HEIGHT];
 
 typedef struct {
   float azimuth;
@@ -152,7 +164,7 @@ void DrawRasengan(const RasenganEffect *effect) {
 
 int main(void) {
   srand48(time(NULL));
-  InitWindow(800, 600, "Multiple Rasengan Effects");
+  InitWindow(WIDTH, HEIGHT, "Multiple Rasengan Effects");
 
   Camera3D camera = {0};
   camera.position = (Vector3){4.0f, 3.0f, 4.0f};
@@ -191,5 +203,91 @@ int main(void) {
   }
 
   CloseWindow();
+  return 0;
+}
+int main2(void) {
+  int pipefd[2];
+  if (pipe(pipefd) < -1) {
+    return 1;
+    printf("pipe failed\n");
+  }
+
+  pid_t child = fork();
+  if (child < 0) {
+    printf("fork failed\n");
+    return 1;
+  }
+
+  if (child == 0) {
+    if (dup2(pipefd[READ_END], STDIN_FILENO) < 0) {
+      printf("dup2 failed\n");
+      return 1;
+    }
+    close(pipefd[WRITE_END]);
+    int ret =
+        execlp("ffmpeg", "ffmpeg", "-loglevel", "verbose", "-y", "-f",
+               "rawvideo", "-pix_fmt", "rgba", "-s", "800x600", "-r", "60",
+               "-an", "-i", "-", "-c:v", "libx264", "output.mp4", NULL);
+
+    if (ret < 0) {
+      printf("exec failed\n");
+      return 1;
+    }
+  }
+  close(pipefd[READ_END]);
+  srand48(time(NULL));
+  InitWindow(WIDTH, HEIGHT, "Multiple Rasengan Effects");
+
+  Camera3D camera = {0};
+  camera.position = (Vector3){4.0f, 3.0f, 4.0f};
+  camera.target = (Vector3){0.0f, 1.0f, 0.0f};
+  camera.up = (Vector3){0.0f, 1.0f, 0.0f};
+  camera.fovy = 45.0f;
+  camera.projection = CAMERA_PERSPECTIVE;
+
+  RasenganEffect rasengan1 =
+      InitRasengan((Vector3){0.0f, 1.0f, 0.0f},  // Position
+                   (Color){0, 180, 255, 255},    // Start color (blue)
+                   (Color){200, 255, 255, 255},  // End color (white)
+                   0.3f,                         // Core radius
+                   0.3f, 0.9f, 1.5f              // Layer radii
+      );
+
+  SetTargetFPS(60);
+  RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
+
+  // while (!WindowShouldClose()) {
+  for (size_t i = 0; i < 60 * 30 && !WindowShouldClose(); i++) {
+    UpdateRasenganOrbiters(&rasengan1);
+    UpdateCamera(&camera, CAMERA_ORBITAL);
+
+    BeginDrawing();
+    BeginTextureMode(screen);
+    ClearBackground(BLACK);
+
+    BeginMode3D(camera);
+
+    DrawRasengan(&rasengan1);
+
+    DrawGrid(10, 1.0f);
+
+    EndMode3D();
+
+    // DrawFPS(10, 40);
+    EndTextureMode();
+    DrawTexture(screen.texture, 0, 0, WHITE);
+    EndDrawing();
+
+    Image image = LoadImageFromTexture(screen.texture);
+    ImageFlipVertical(&image);  // Flip the image vertically
+    write(pipefd[WRITE_END], image.data, WIDTH * HEIGHT * sizeof(uint32_t));
+    UnloadImage(image);
+  }
+
+  CloseWindow();
+  close(pipefd[WRITE_END]);
+  wait(NULL);
+  printf("Done rendering the image\n");
+
   return 0;
 }
