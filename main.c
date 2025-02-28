@@ -237,7 +237,7 @@ int main(void) {
   while (!WindowShouldClose()) {
     UpdateRasenganOrbiters(&rasengan1);
 
-    UpdatePeasyCam(&camera);
+    UpdateCam(&camera);
 
     BeginDrawing();
     ClearBackground(BLACK);
